@@ -5,10 +5,11 @@
 #include <cstdio>
 #include <iostream>
 #include <fstream>
-#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <cctype>
+#include <utility>
 
 BitcoinExchange::BitcoinExchange()
 {
@@ -37,39 +38,21 @@ BitcoinExchange::~BitcoinExchange()
 			  << BOLD_OFF << std::endl;
 }
 
-void BitcoinExchange::loadDataBase(const std::string &filename)
-{
-	std::ifstream file(filename.c_str());
-
-	if (!file.is_open())
-		throw std::runtime_error("Error: could not open database file.");
-
-	std::string line;
-	std::getline(file, line);
-	while (std::getline(file, line))
-	{
-		std::size_t pos = line.find(',');
-		if (pos == std::string::npos)
-			continue;
-		std::string date = line.substr(0, pos);
-		std::string priceStr = line.substr(pos + 1);
-
-		std::istringstream iss(priceStr);
-		float price;
-		if (iss >> price)
-			this->_DB[date] = price;
-	}
-	file.close();
-}
-
 static bool isValidDate(const std::string &date)
 {
 	if (date.length() != 10)
 		return false;
 	if (date[4] != '-' || date[7] != '-')
 		return false;
+	for (std::size_t i = 0; i < date.length(); i++)
+	{
+		if (i == 4 || i == 7)
+			continue;
+		if (!std::isdigit(static_cast<unsigned char>(date[i])))
+			return false;
+	}
 	int year, month, day;
-	if (sscanf(date.c_str(), "%4d-%2d-%2d", &year, &month, &day) != 3)
+	if (std::sscanf(date.c_str(), "%4d-%2d-%2d", &year, &month, &day) != 3)
 		return false;
 	if (year < 1 || (month < 1 || month > 12) || day < 1)
 		return false;
@@ -90,6 +73,41 @@ static bool isValidValue(const std::string &str, float &value)
 	if (iss >> extra)
 		return false;
 	return true;
+}
+
+void BitcoinExchange::loadDataBase(const std::string &filename)
+{
+	std::ifstream file(filename.c_str());
+
+	if (!file.is_open())
+		throw std::runtime_error("Error: could not open database file.");
+
+	std::string line;
+	std::getline(file, line);
+	while (std::getline(file, line))
+	{
+		std::size_t pos = line.find(',');
+		if (pos == std::string::npos)
+			continue;
+		std::string date = line.substr(0, pos);
+		if (!isValidDate(date)){
+			std::cerr << CYAN << "Error: bad input => "
+					  << date << RESET << std::endl;
+			continue;
+		}
+		std::string priceStr = line.substr(pos + 1);
+		float price;
+		if (!isValidValue(priceStr, price) || price < 0){
+			std::cerr << CYAN << "Error: bad input => "
+					  << priceStr << RESET << std::endl;
+			continue;
+		}
+		std::pair<std::map<std::string, float>::iterator, bool> result;
+		result = this->_DB.insert(std::make_pair(date, price));
+		if (!result.second)
+			std::cout << CYAN << "Duplicate date: "
+					  << date << RESET << std::endl;
+	}
 }
 
 void BitcoinExchange::processInput(const std::string &filename)
@@ -155,5 +173,4 @@ void BitcoinExchange::processInput(const std::string &filename)
 		std::cout << GREEN << date << " => " << value << " = "
 				  << (value * rate) << RESET << std::endl;
 	}
-	file.close();
 }
